@@ -1,0 +1,12 @@
+{
+  "domain": "pvoutput_foxess",
+  "name": "PVOutput FoxESS",
+  "config_flow": true,
+  "documentation": "https://github.com/06benste/PVOutput-FoxESS/blob/main/README.md",
+  "issue_tracker": "https://github.com/06benste/PVOutput-FoxESS/issues",
+  "codeowners": ["@06benste"],
+  "version": "1.0.0",
+  "iot_class": "local_polling",
+  "dependencies": [],
+  "requirements": ["pymodbus", "requests"]
+} 
