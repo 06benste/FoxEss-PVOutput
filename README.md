@@ -2,16 +2,15 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 
-This Home Assistant custom component connects to FoxESS inverters via local Modbus TCP over your network to read operational data and automatically upload it to [PVOutput.org](https://pvoutput.org).
+This Home Assistant custom component connects to FoxESS inverter via Modbus TCP over your network to read inverter data and automatically upload it to [PVOutput.org](https://pvoutput.org).
 
 > **Note:** This integration has been tested with the Elfin EW11a Modbus-TCP to serial gateway. Other connection methods may work but are unconfirmed.
 
-It polls your inverter locally, meaning you are not reliant on the FoxESS cloud infrastructure, and you can get near real-time data into Home Assistant.
 
 ## Features
 
-*   **Local Polling:** Connects directly to your inverter over your local network using Modbus TCP.
-*   **Home Assistant Sensors:** Creates sensors in Home Assistant for all the data points in your inverter's profile, including power, energy, voltage, and temperature.
+*   **Local Polling:** Connects to your inverter over your local network using Modbus TCP.
+*   **Home Assistant Sensors:** Creates sensors in Home Assistant for all the data points in your inverter's profile relevant to PVOutput, including power, energy, voltage, and temperature.
 *   **PVOutput Uploads:** Automatically uploads your system's status to your PVOutput account at a configurable interval.
 *   **UI Configuration:** Simple to set up from the Home Assistant user interface; no manual YAML configuration is required.
 
@@ -24,11 +23,11 @@ This integration is best installed using the Home Assistant Community Store (HAC
     *   Click the three dots in the top right corner and select "Custom repositories."
     *   In the "Repository" field, paste the URL of this GitHub repository.
     *   Select "Integration" as the category and click "Add."
-2.  **Install the Integration:**
+2.  **Download the Integration:**
     *   The "PVOutput FoxESS" integration will now appear in your HACS integrations list.
-    *   Click "Install" and follow the prompts.
+    *   Click "Download" and follow the prompts.
 3.  **Restart Home Assistant:**
-    *   After installation, you must restart Home Assistant for the integration to be loaded.
+    *   After downloading, you must restart Home Assistant for the integration to be loaded.
 
 ## Configuration
 
@@ -58,7 +57,6 @@ The following inverter models are theoretically supported based on their profile
 *   AIO-H1
 *   AIO-H3
 *   H1
-*   H1_G2
 *   H3
 *   H3_PRO
 *   KH
