@@ -61,6 +61,24 @@ The following inverter models are theoretically supported based on their profile
 *   H3_PRO
 *   KH
 
+## PVOutput Data Mapping
+
+The following table shows how data from your FoxESS inverter is mapped to PVOutput fields:
+
+| PVOutput Field | PVOutput Description | What does FoxEss call it? |
+|----------------|-------------|---------------|
+| Date | Date of data upload to PVOutput | N/A - PVOutput Generated |
+| Time | Time of data upload to PVOutput | N/A - PVOutput Generated |
+| Energy | Total energy generated today (kWh) | PV Production (app stats screen) |
+| Efficiency | Calculated by dividing the total energy output (kWh) by the system size (kW) | N/A - PVOutput Generated |
+| Power | Current power generation (kW) | PV (app flows screen) |
+| Average |  The average power is used to smooth out fluctuations in the instantaneous power readings | N/A - PVOutput Generated |
+| Normalised |  Normalised energy per kW panels (kWh/kW) | N/A - PVOutput Generated |
+| Temperature | Inverter temperature (°C) | Inverter Temperature |
+| Voltage | Grid voltage (V) | Grid Voltage - `grid_voltage_R` or `rvolt` or `rvolt_R` or `rvolt_A` (depending on inverter model) |
+| Energy Used | Total energy consumed today (kWh) | From Grid (app stats screen) |
+| Power Used | Current power consumption (kW) | Load (app flows screen) |
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details. 
