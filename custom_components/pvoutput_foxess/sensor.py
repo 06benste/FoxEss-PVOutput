@@ -1,6 +1,7 @@
 """Sensor platform for PVOutput FoxESS."""
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 from datetime import timedelta, datetime
 import os
 import asyncio
@@ -32,6 +33,19 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# PVOutput Uploader Log
+# The log file will be created in /config/custom_components/pvoutput_foxess/
+pvoutput_log_file = os.path.join(os.path.dirname(__file__), 'pvoutput_uploader.log')
+pvoutput_logger = logging.getLogger('pvoutput_uploader')
+pvoutput_logger.setLevel(logging.INFO)
+# Rotate log file when it reaches 5MB, keep 1 backup
+handler = RotatingFileHandler(pvoutput_log_file, maxBytes=5*1024*1024, backupCount=1)
+formatter = logging.Formatter('%(asctime)s - %(message)s')
+handler.setFormatter(formatter)
+# Avoid adding handler multiple times if the module is reloaded
+if not pvoutput_logger.handlers:
+    pvoutput_logger.addHandler(handler)
+
 # Define the keys for sensors that are sent to PVOutput
 PVOUTPUT_SENSORS = [
     "solar_energy_today",
@@ -52,7 +66,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     inverter_type = config[CONF_INVERTER_TYPE]
     upload_interval = config[CONF_UPLOAD_INTERVAL]
 
-    # Load inverter profiles asynchronously to avoid blocking
+    # Load inverter profiles
     path = os.path.join(os.path.dirname(__file__), 'inverter_profiles.json')
     def load_profiles():
         with open(path, "r") as f:
@@ -76,11 +90,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         hass, modbus_ip, profile, inverter_type, timedelta(minutes=upload_interval)
     )
 
-    await coordinator.async_config_entry_first_refresh()
+    # Set up PVOutput uploader and pass it to the coordinator
+    pvoutput_uploader = PVOutputUploader(hass, config, coordinator)
+    hass.data[DOMAIN][entry.entry_id]["pvoutput_uploader"] = pvoutput_uploader
+    coordinator.set_pvoutput_uploader(pvoutput_uploader)
     
-    # Immediately push data to PVOutput after first load
-    if coordinator.pvoutput_uploader and coordinator.data:
-        await coordinator.pvoutput_uploader.async_upload_data(coordinator.data)
+    await coordinator.async_config_entry_first_refresh()
 
     sensors = []
     for register in profile:
@@ -90,13 +105,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
     async_add_entities(sensors)
     
-    # Set up PVOutput uploader
-    pvoutput_uploader = PVOutputUploader(hass, config, coordinator)
-    hass.data[DOMAIN][entry.entry_id]["pvoutput_uploader"] = pvoutput_uploader
-
-    # Pass the uploader to the coordinator so it can trigger uploads
-    coordinator.set_pvoutput_uploader(pvoutput_uploader)
-
     pvoutput_status_sensors = [
         PVOutputLastUploadSensor(pvoutput_uploader),
         PVOutputLastStatusSensor(pvoutput_uploader),
@@ -209,7 +217,7 @@ class FoxESSSensor(Entity):
         """Return device information."""
         return {
             "identifiers": {(DOMAIN, self.coordinator.modbus_ip)},
-            "name": f"FoxESS {self.coordinator.modbus_ip}",
+            "name": f"FoxESS{self.coordinator.inverter_type} ({self.coordinator.modbus_ip})",
             "manufacturer": "FoxESS",
             "model": self.coordinator.inverter_type,
         }
@@ -322,15 +330,15 @@ class PVOutputUploader:
         payload = {
             'd': datetime.now().strftime('%Y%m%d'),
             't': datetime.now().strftime('%H:%M'),
-            'v1': int(data['solar_energy_today'] * 1000),
-            'v2': int(data['pv_power_now'] * 1000),
-            'v3': int(data['grid_consumption_energy_today'] * 1000),
-            'v4': int(data['load_power'] * 1000),
+            'v1': int(round(data['solar_energy_today'] * 1000)),
+            'v2': int(round(data['pv_power_now'] * 1000)),
+            'v3': int(round(data['grid_consumption_energy_today'] * 1000)),
+            'v4': int(round(data['load_power'] * 1000)),
         }
         if data.get('invtemp') is not None:
-            payload['v5'] = data['invtemp']
+            payload['v5'] = round(data['invtemp'], 2)
         if grid_voltage is not None:
-            payload['v6'] = grid_voltage
+            payload['v6'] = round(grid_voltage, 2)
 
         headers = {
             "X-Pvoutput-Apikey": self._api_key,
@@ -343,17 +351,20 @@ class PVOutputUploader:
             _LOGGER.debug("PVOutput API Key or System ID is not configured, skipping upload.")
             return
 
+        pvoutput_logger.info(f"Uploading to PVOutput. Payload: {payload}")
         websession = async_get_clientsession(self._hass)
         try:
             async with websession.post(self._url, headers=headers, data=payload, timeout=10) as response:
                 response_text = await response.text()
                 self.last_status_code = response.status
+                pvoutput_logger.info(f"PVOutput response. Status: {response.status}, Response: {response_text.strip()}")
                 if response.status == 200:
                     _LOGGER.info(f"Successfully uploaded to PVOutput. Response: {response_text}")
                     self.last_success_timestamp = datetime.now().isoformat()
                 else:
                     _LOGGER.warning(f"Failed to upload to PVOutput. Status: {response.status}, Response: {response_text}")
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            pvoutput_logger.error(f"Error uploading to PVOutput: {e}")
             _LOGGER.error(f"Error uploading to PVOutput: {e}")
             self.last_status_code = "Error"
         
@@ -377,7 +388,7 @@ class PVOutputStatusSensorBase(Entity):
         """Return device information."""
         return {
             "identifiers": {(DOMAIN, self._coordinator.modbus_ip)},
-            "name": f"FoxESS {self._coordinator.modbus_ip}",
+            "name": f"FoxESS{self._coordinator.inverter_type} ({self._coordinator.modbus_ip})",
             "manufacturer": "FoxESS",
             "model": self._coordinator.inverter_type,
         }
