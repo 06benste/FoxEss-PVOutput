@@ -82,3 +82,7 @@ The following table shows how data from your FoxESS inverter is mapped to PVOutp
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details. 
+
+## Acknowledgements
+Inverter register information was sourced and adapted from https://github.com/nathanmarlor/foxess_modbus, with thanks to the original author for their work.
+
