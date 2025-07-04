@@ -79,6 +79,12 @@ The following table shows how data from your FoxESS inverter is mapped to PVOutp
 | Energy Used | Total energy consumed today (kWh) | From Grid (app stats screen) |
 | Power Used | Current power consumption (kW) | Load (app flows screen) |
 
+## Known Issues
+
+### Daily Solar Data Resolution
+
+A known issue is that the FoxESS inverter only provides daily solar data at a limited resolution. This can cause the average values reported in PVOutput to appear irregular or less accurate than expected. Unfortunately, this is a limitation of the inverter itself, and would require FoxESS to change the resolution of the data it provides in order to resolve this issue.
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details. 

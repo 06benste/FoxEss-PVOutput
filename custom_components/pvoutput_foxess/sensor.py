@@ -87,7 +87,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                     required_keys.add(source)
 
     coordinator = FoxESSDataCoordinator(
-        hass, modbus_ip, profile, inverter_type, timedelta(minutes=upload_interval)
+        hass, modbus_ip, profile, inverter_type, upload_interval
     )
 
     # Set up PVOutput uploader and pass it to the coordinator
@@ -123,14 +123,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 class FoxESSDataCoordinator(DataUpdateCoordinator):
     """Class to manage fetching data from the API."""
 
-    def __init__(self, hass, modbus_ip, profile, inverter_type, update_interval):
+    def __init__(self, hass, modbus_ip, profile, inverter_type, upload_interval_minutes):
         """Initialize."""
         self.modbus_ip = modbus_ip
         self.profile = profile
         self.inverter_type = inverter_type
         self.pvoutput_uploader = None
-
-        super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=update_interval)
+        self.upload_interval_minutes = upload_interval_minutes
+        super().__init__(hass, _LOGGER, name=DOMAIN)
+        self._wall_clock_handle = None
 
     def set_pvoutput_uploader(self, uploader):
         """Set the PVOutput uploader instance."""
@@ -200,6 +201,30 @@ class FoxESSDataCoordinator(DataUpdateCoordinator):
         finally:
             if client.is_socket_open():
                 client.close()
+
+    async def async_config_entry_first_refresh(self):
+        await super().async_config_entry_first_refresh()
+        self._schedule_wall_clock_refresh()
+
+    def _schedule_wall_clock_refresh(self):
+        if self._wall_clock_handle:
+            self._wall_clock_handle.cancel()
+        now = datetime.now()
+        # Calculate seconds until next aligned interval
+        next_minute = (now.minute // self.upload_interval_minutes + 1) * self.upload_interval_minutes
+        next_time = now.replace(second=0, microsecond=0)
+        if next_minute >= 60:
+            # Move to next hour
+            next_time = next_time.replace(minute=0) + timedelta(hours=1)
+        else:
+            next_time = next_time.replace(minute=next_minute)
+        delay = (next_time - now).total_seconds()
+        loop = asyncio.get_event_loop()
+        self._wall_clock_handle = loop.call_later(delay, lambda: asyncio.create_task(self._wall_clock_refresh()))
+
+    async def _wall_clock_refresh(self):
+        await self.async_request_refresh()
+        self._schedule_wall_clock_refresh()
 
 
 class FoxESSSensor(Entity):
@@ -330,10 +355,10 @@ class PVOutputUploader:
         payload = {
             'd': datetime.now().strftime('%Y%m%d'),
             't': datetime.now().strftime('%H:%M'),
-            'v1': int(round(data['solar_energy_today'] * 1000)),
-            'v2': int(round(data['pv_power_now'] * 1000)),
-            'v3': int(round(data['grid_consumption_energy_today'] * 1000)),
-            'v4': int(round(data['load_power'] * 1000)),
+            'v1': int(data['solar_energy_today'] * 1000),
+            'v2': int(data['pv_power_now'] * 1000),
+            'v3': int(data['grid_consumption_energy_today'] * 1000),
+            'v4': int(data['load_power'] * 1000),
         }
         if data.get('invtemp') is not None:
             payload['v5'] = round(data['invtemp'], 2)
