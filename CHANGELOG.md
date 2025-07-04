@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ## [0.11-alpha] - 2024-07-05
-- Integration entry now uses the PVOutput system name (e.g., 'Hollys PV - PV Output') instead of the IP address. This is fetched using the getsystem.jsp endpoint. You must remove and re-add the integration for the new name to appear.
+- Integration entry now uses the PVOutput system name (e.g., 'My Solar Site - PV Output') instead of the IP address. This is fetched using the getsystem.jsp endpoint. You must remove and re-add the integration for the new name to appear.
 
 ### Added
 - CHANGELOG.md file to track changes.
