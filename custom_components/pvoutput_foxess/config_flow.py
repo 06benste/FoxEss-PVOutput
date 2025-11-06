@@ -55,8 +55,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return await loop.run_in_executor(None, try_connect)
 
     async def _validate_pvoutput_credentials(self, api_key: str, system_id: str) -> bool:
-        """Check PVOutput API key and system ID by calling getstatus.jsp."""
-        url = "https://pvoutput.org/service/r2/getstatus.jsp"
+        """Check PVOutput API key and system ID by calling getsystem.jsp."""
+        # Use getsystem.jsp for validation as it's simpler and more reliable
+        url = "https://pvoutput.org/service/r2/getsystem.jsp"
         headers = {
             "X-Pvoutput-Apikey": api_key,
             "X-Pvoutput-SystemId": system_id,
@@ -64,7 +65,27 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=headers, timeout=10) as resp:
-                    return resp.status == 200
+                    # Read response text once (can only be read once)
+                    response_text = await resp.text()
+                    response_text = response_text.strip()
+                    
+                    # PVOutput returns 401 for invalid credentials
+                    if resp.status == 401:
+                        _LOGGER.debug(f"PVOutput returned 401: {response_text}")
+                        return False
+                    # Check for 200 status
+                    if resp.status != 200:
+                        _LOGGER.debug(f"PVOutput returned status {resp.status}: {response_text}")
+                        return False
+                    # Verify response contains valid data (getsystem.jsp returns CSV when successful)
+                    # Empty response or error messages indicate failure
+                    if not response_text or response_text.lower().startswith("error"):
+                        _LOGGER.debug(f"PVOutput returned invalid response: {response_text}")
+                        return False
+                    return True
+        except aiohttp.ClientError as e:
+            _LOGGER.error(f"PVOutput credential check failed (network error): {e}")
+            return False
         except Exception as e:
             _LOGGER.error(f"PVOutput credential check failed: {e}")
             return False

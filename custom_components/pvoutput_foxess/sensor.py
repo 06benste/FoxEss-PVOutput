@@ -1,6 +1,7 @@
 """Sensor platform for PVOutput FoxESS."""
 import json
 import logging
+import inspect
 from logging.handlers import RotatingFileHandler
 from datetime import timedelta, datetime
 import os
@@ -8,8 +9,8 @@ import asyncio
 import aiohttp
 
 import requests
-from pymodbus.client import ModbusTcpClient
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from .modbus_client import ImprovedModbusClient, ModbusClientFailedError
 from homeassistant.helpers.entity import Entity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -37,10 +38,10 @@ _LOGGER = logging.getLogger(__name__)
 # The log file will be created in /config/custom_components/pvoutput_foxess/
 pvoutput_log_file = os.path.join(os.path.dirname(__file__), 'pvoutput_uploader.log')
 pvoutput_logger = logging.getLogger('pvoutput_uploader')
-pvoutput_logger.setLevel(logging.INFO)
+pvoutput_logger.setLevel(logging.DEBUG)  # Changed to DEBUG to capture debug messages
 # Rotate log file when it reaches 5MB, keep 1 backup
 handler = RotatingFileHandler(pvoutput_log_file, maxBytes=5*1024*1024, backupCount=1)
-formatter = logging.Formatter('%(asctime)s - %(message)s')
+formatter = logging.Formatter('%(asctime)s - [%(levelname)s] - %(message)s')  # Added level name
 handler.setFormatter(formatter)
 # Avoid adding handler multiple times if the module is reloaded
 if not pvoutput_logger.handlers:
@@ -132,6 +133,8 @@ class FoxESSDataCoordinator(DataUpdateCoordinator):
         self.upload_interval_minutes = upload_interval_minutes
         super().__init__(hass, _LOGGER, name=DOMAIN)
         self._wall_clock_handle = None
+        # Initialize improved Modbus client
+        self._modbus_client = ImprovedModbusClient(hass, modbus_ip, port=502, slave=247)
 
     def set_pvoutput_uploader(self, uploader):
         """Set the PVOutput uploader instance."""
@@ -140,51 +143,59 @@ class FoxESSDataCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self):
         """Fetch data from the inverter."""
         try:
-            data = await self.hass.async_add_executor_job(self._read_modbus_data)
+            data = await self._read_modbus_data()
             if data and self.pvoutput_uploader:
                 await self.pvoutput_uploader.async_upload_data(data)
             return data
         except Exception as e:
             raise UpdateFailed(f"Error communicating with inverter: {e}")
 
-    def _read_modbus_data(self):
-        """Read data from Modbus."""
-        client = ModbusTcpClient(self.modbus_ip, port=502)
+    async def _read_modbus_data(self):
+        """Read data from Modbus using improved client."""
         data = {}
+        
         try:
-            if not client.connect():
-                _LOGGER.error("Failed to connect to inverter")
-                return {}
-
+            # Read all sensor registers
             for register in self.profile:
                 if register.get('type') == 'sensor':
                     key = register['key']
                     try:
                         address = register['addresses'][0]
                         count = len(register['addresses'])
-                        result = client.read_holding_registers(address, count=count, slave=247)
                         
-                        if not result.isError():
-                            if count > 1:
-                                value = (result.registers[0] << 16) + result.registers[1]
-                            else:
-                                value = result.registers[0]
-
-                            if register.get('signed'):
-                                bit_length = 16 * count
-                                if value & (1 << (bit_length - 1)):
-                                    value -= (1 << bit_length)
-
-                            if 'scale' in register and register['scale'] is not None:
-                                value = value * register['scale']
-                            
-                            data[key] = value
+                        # Skip if in invalid range
+                        if address in self._modbus_client._detected_invalid_ranges:
+                            continue
+                        
+                        # Read registers
+                        registers = await self._modbus_client.read_holding_registers(address, count)
+                        
+                        # Process value
+                        if count > 1:
+                            value = (registers[0] << 16) + registers[1]
                         else:
-                            _LOGGER.warning(f"Error reading {register['name']} ({key}): {result}")
-
+                            value = registers[0]
+                        
+                        # Apply signed conversion if needed
+                        if register.get('signed'):
+                            bit_length = 16 * count
+                            if value & (1 << (bit_length - 1)):
+                                value -= (1 << bit_length)
+                        
+                        # Apply scaling if needed
+                        if 'scale' in register and register['scale'] is not None:
+                            value = value * register['scale']
+                        
+                        data[key] = value
+                        self._modbus_client._update_connection_state(True)
+                        
+                    except ModbusClientFailedError as e:
+                        _LOGGER.warning(f"Error reading {register['name']} ({key}): {e}")
+                        self._modbus_client._update_connection_state(False, e)
                     except Exception as e:
                         _LOGGER.error(f"Error reading {register['name']} ({key}): {e}")
-
+                        self._modbus_client._update_connection_state(False, e)
+            
             # Calculate lambda values
             for register in self.profile:
                 if register.get('type') == 'lambda':
@@ -194,17 +205,23 @@ class FoxESSDataCoordinator(DataUpdateCoordinator):
                         if all(s is not None for s in sources):
                             data[key] = sum(s for s in sources if s is not None)
                     except Exception as e:
-                         _LOGGER.error(f"Error calculating {register['name']} ({key}): {e}")
+                        _LOGGER.error(f"Error calculating {register['name']} ({key}): {e}")
             
             return data
-
-        finally:
-            if client.is_socket_open():
-                client.close()
+            
+        except Exception as e:
+            _LOGGER.error(f"Error in Modbus read: {e}")
+            self._modbus_client._update_connection_state(False, e)
+            raise
 
     async def async_config_entry_first_refresh(self):
         await super().async_config_entry_first_refresh()
         self._schedule_wall_clock_refresh()
+    
+    async def async_shutdown(self):
+        """Clean up resources."""
+        if hasattr(self, '_modbus_client') and self._modbus_client:
+            await self._modbus_client.close()
 
     def _schedule_wall_clock_refresh(self):
         if self._wall_clock_handle:
@@ -306,7 +323,11 @@ class FoxESSSensor(Entity):
     @property
     def available(self):
         """Return if entity is available."""
-        return self.coordinator.last_update_success
+        # Check both coordinator success and Modbus client connection state
+        return (
+            self.coordinator.last_update_success
+            and self.coordinator._modbus_client.is_connected
+        )
 
     async def async_added_to_hass(self):
         """When entity is added to hass."""
