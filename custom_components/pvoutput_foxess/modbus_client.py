@@ -1,4 +1,3 @@
-"""Modbus client with improvements based on Nathan Marlors' integration."""
 import asyncio
 import inspect
 import logging
@@ -303,7 +302,7 @@ class ImprovedModbusClient:
             _LOGGER.debug(f"Keyword 'unit' failed: {e}")
             _pvoutput_logger.debug(f"Modbus: Keyword 'unit' failed: {e}")
         
-        # Try positional last (older pymodbus versions, like Nathan's bundled version)
+        # Try positional last (older pymodbus versions
         try:
             test_result = await self._async_pymodbus_call(
                 self._client.read_holding_registers,
